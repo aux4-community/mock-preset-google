@@ -1,0 +1,113 @@
+{
+  "scope": "community",
+  "name": "mock-preset-google",
+  "version": "0.0.1",
+  "description": "Google service preset for aux4/mock (OAuth token + userinfo auth dance)",
+  "license": "Apache-2.0",
+  "tags": [
+    "aux4",
+    "mock",
+    "preset",
+    "google",
+    "oauth",
+    "test"
+  ],
+  "dependencies": [
+    "aux4/mock"
+  ],
+  "profiles": [
+    {
+      "name": "main",
+      "commands": [
+        {
+          "name": "mock",
+          "execute": [
+            "profile:mock"
+          ],
+          "help": {
+            "text": "Programmable HTTP mock server for tests"
+          }
+        }
+      ]
+    },
+    {
+      "name": "mock",
+      "commands": [
+        {
+          "name": "preset",
+          "execute": [
+            "profile:mock:preset"
+          ],
+          "help": {
+            "text": "Apply a service preset to a running mock. Presets are installable packages (community/mock-preset-<service>) that add commands here."
+          }
+        }
+      ]
+    },
+    {
+      "name": "mock:preset",
+      "commands": [
+        {
+          "name": "google",
+          "execute": [
+            "aux4 mock stub param(port) param(name) param(stateDir) --method POST --path /token --status 200 --body value(tokenBody)",
+            "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v2/userinfo --status 200 --when-header 'authorization=Bearer *' --body value(identityBody)",
+            "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v2/userinfo --status 401 --body value(unauthBody)",
+            "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v3/userinfo --status 200 --when-header 'authorization=Bearer *' --body value(identityBody)",
+            "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v3/userinfo --status 401 --body value(unauthBody)"
+          ],
+          "help": {
+            "text": "Register Google's auth dance on a running mock: POST /token, and bearer-gated GET /oauth2/v2/userinfo + /oauth2/v3/userinfo with the Google 401 envelope",
+            "variables": [
+              {
+                "name": "port",
+                "text": "Port of the running mock server (derives stateDir)",
+                "default": "7070"
+              },
+              {
+                "name": "name",
+                "text": "Stable handle of the server (derives stateDir; takes precedence over --port)",
+                "default": ""
+              },
+              {
+                "name": "stateDir",
+                "text": "Explicit state directory (highest precedence)",
+                "default": ""
+              },
+              {
+                "name": "accessToken",
+                "text": "Token value returned by the token endpoint",
+                "default": "mock-access-token"
+              },
+              {
+                "name": "email",
+                "text": "Email returned in the userinfo response",
+                "default": "sally@example.com"
+              },
+              {
+                "name": "user",
+                "text": "Display name / given name returned in the userinfo response",
+                "default": "Sally"
+              },
+              {
+                "name": "tokenBody",
+                "text": "OAuth token response body (derived from --accessToken)",
+                "default": "{\"access_token\":\"${accessToken}\",\"expires_in\":3599,\"refresh_token\":\"mock-refresh-token\",\"scope\":\"https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile\",\"token_type\":\"Bearer\"}"
+              },
+              {
+                "name": "identityBody",
+                "text": "userinfo identity body (derived from --email/--user)",
+                "default": "{\"email\":\"${email}\",\"email_verified\":true,\"family_name\":\"Example\",\"given_name\":\"${user}\",\"name\":\"${user}\",\"picture\":\"https://example.com/photo.jpg\",\"sub\":\"1234567890\"}"
+              },
+              {
+                "name": "unauthBody",
+                "text": "Google 401 UNAUTHENTICATED error envelope",
+                "default": "{\"error\":{\"code\":401,\"message\":\"Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential.\",\"status\":\"UNAUTHENTICATED\"}}"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
