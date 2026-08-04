@@ -1,7 +1,7 @@
 {
   "scope": "community",
   "name": "mock-preset-google",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Google service preset for aux4/mock (OAuth token + userinfo auth dance)",
   "license": "Apache-2.0",
   "tags": [
