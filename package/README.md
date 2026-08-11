@@ -1,22 +1,27 @@
-# community/mock-preset-google
+# community/mock-preset-google-auth
 
-A **service preset** for [`aux4/mock`](https://hub.aux4.io/package/aux4/mock) that stands up Google's OAuth auth dance on a running mock server with a single command: the token endpoint, both versions of the userinfo endpoint (bearer-gated), and Google's real `401` error envelope. Install it and `aux4 mock preset google` becomes available — the mock core stays preset-agnostic and knows nothing about Google.
+Google auth preset for [aux4/mock](https://hub.aux4.io/r/public/packages/aux4/mock).
 
-This is a pure `.aux4` package (no binary, no bundle). It works entirely by contributing a `google` command into `aux4/mock`'s `mock:preset` profile via aux4's `global.aux4` profile merge.
+Every Google API test needs the same two things before it can call anything: a token file to pass
+to `--tokenFile`, and an OAuth surface to answer the auth dance. This preset supplies both in one
+command, so a test can get to the API call it actually cares about.
+
+It is the base every other Google preset builds on — `community/mock-preset-google-calendar`,
+`-gmail`, `-drive` and friends all depend on it.
 
 ## Installation
 
 ```bash
-aux4 aux4 pkger install community/mock-preset-google
+aux4 aux4 pkger install community/mock-preset-google-auth
 ```
-
-Installing this package pulls in `aux4/mock` as a dependency.
 
 ## Usage
 
+Start a mock, then apply the preset:
+
 ```bash
-aux4 mock start --port 8080
-aux4 mock preset google --port 8080
+aux4 mock start --port 18901
+aux4 mock preset google auth --port 18901
 ```
 
 ```text
@@ -25,80 +30,80 @@ stub GET /oauth2/v2/userinfo -> 200
 stub GET /oauth2/v2/userinfo -> 401
 stub GET /oauth2/v3/userinfo -> 200
 stub GET /oauth2/v3/userinfo -> 401
+token file google-token.json
 ```
 
-Confirm it is installed and visible to the mock:
+That writes `google-token.json` in the working directory and registers the endpoints. A Google
+client now runs entirely offline:
 
 ```bash
-aux4 mock presets
+aux4 google calendar events list --tokenFile google-token.json --apiUrl http://127.0.0.1:18901/api
 ```
 
-```text
-Installed presets (apply with: aux4 mock preset <service> --port <port>):
-  google
-```
+### What it registers
 
-## What it stubs
+| Method | Path | Behaviour |
+|---|---|---|
+| `POST` | `/token` | returns an OAuth token response |
+| `GET` | `/oauth2/v2/userinfo` | the identity with a bearer, `401` without |
+| `GET` | `/oauth2/v3/userinfo` | the same, at v3 |
 
-| Method + Path | Status | Behavior |
-|---------------|--------|----------|
-| `POST /token` | `200` | Standard OAuth token response (`access_token`, `refresh_token`, `scope`, `token_type`) |
-| `GET /oauth2/v2/userinfo` | `200` | Identity JSON — **only** when `Authorization: Bearer <token>` is present |
-| `GET /oauth2/v2/userinfo` | `401` | Google `UNAUTHENTICATED` envelope — fallback when no bearer token |
-| `GET /oauth2/v3/userinfo` | `200` | Same identity, gated the same way (Google exposes userinfo at v2 and v3) |
-| `GET /oauth2/v3/userinfo` | `401` | Same `401` envelope fallback |
+The `401` is Google's real `UNAUTHENTICATED` envelope, so a client's error handling is exercised
+rather than a generic failure.
 
-Each userinfo endpoint is registered as **two** stubs on the same path: a happy path gated on `Authorization: Bearer *` (any token) and a bare fallback returning the `401`. A request with a bearer token gets the identity; one without falls through to Google's real unauthenticated error:
+### The token file
+
+The written file carries the fields a Google package expects — `clientId`, `clientSecret`,
+`authUrl`, `tokenUrl`, `scopes`, `accessToken`, `refreshToken`, `expiresAt`.
+
+`tokenUrl` points back at this mock, so if a client decides to refresh, the refresh is served
+locally instead of reaching Google. `expiresAt` defaults to the far future so nothing refreshes at
+all; set it in the past to exercise the refresh path deliberately:
 
 ```bash
-# with a bearer token → 200 identity
-curl -s http://localhost:8080/api/oauth2/v2/userinfo -H 'Authorization: Bearer x'
-# {"email":"sally@example.com","email_verified":true,"family_name":"Example","given_name":"Sally","name":"Sally","picture":"https://example.com/photo.jpg","sub":"1234567890"}
-
-# without one → 401 Google error envelope
-curl -s http://localhost:8080/api/oauth2/v2/userinfo
-# {"error":{"code":401,"message":"Request is missing required authentication credential...","status":"UNAUTHENTICATED"}}
+aux4 mock preset google auth --port 18901 --expiresAt 2020-01-01T00:00:00Z
 ```
 
-The preset is **additive** — it only calls `aux4 mock stub`, so it never clears existing stubs. Layer the business endpoints your test exercises on top:
+### Options
 
 ```bash
-aux4 mock preset google --port 8080
-aux4 mock stub --port 8080 --method POST \
-  --path /gmail/v1/users/me/messages/send \
+aux4 mock preset google auth --port 18901 \
+  --accessToken TOK123 --email devon@corp.io --user Devon \
+  --scopes https://www.googleapis.com/auth/calendar
+```
+
+| Option | Description | Default |
+|---|---|---|
+| `--port` | Port of the running mock server | `7070` |
+| `--name` | Stable handle of the server, instead of `--port` | |
+| `--stateDir` | Explicit state directory | |
+| `--tokenFile` | Where to write the token file | `google-token.json` |
+| `--accessToken` | Token returned by `/token` and written to the file | `mock-access-token` |
+| `--refreshToken` | Refresh token written to the file | `mock-refresh-token` |
+| `--expiresAt` | Token expiry written to the file | `2099-12-31T23:59:59Z` |
+| `--scopes` | Scopes written to the file | `.../auth/userinfo.email` |
+| `--clientId` | OAuth client id written to the file | `mock-client-id` |
+| `--clientSecret` | OAuth client secret written to the file | `mock-client-secret` |
+| `--email` | Email returned by userinfo | `sally@example.com` |
+| `--user` | Display name returned by userinfo | `Sally` |
+| `--authUrl` | Authorization URL written to the file | Google's real one |
+| `--tokenUrl` | Token URL written to the file | this mock's `/token` |
+
+For a field the flags do not reach, replace a whole body: `--tokenFileBody`, `--tokenBody`,
+`--identityBody`, and `--unauthBody` each take raw JSON.
+
+### Layering your own stubs
+
+Apply the preset, then add the API under test with `aux4 mock stub` — a later stub for the same
+method and path wins, so any endpoint can be bent without hand-writing the rest:
+
+```bash
+aux4 mock preset google auth --port 18901
+aux4 mock stub --port 18901 --method POST --path /gmail/v1/users/me/messages/send \
   --status 200 --body '{"id":"msg_1","labelIds":["SENT"]}'
 ```
 
-## Overrides
+## See also
 
-All optional, with sane defaults, so a test can assert a known identity:
-
-```bash
-aux4 mock preset google --port 8080 \
-  --accessToken TOK123 --email sally@corp.io --user "Sally"
-```
-
-- `--accessToken` — token returned by `POST /token` (default `mock-access-token`)
-- `--email` — email in the userinfo response (default `sally@example.com`)
-- `--user` — display/given name in the userinfo response (default `Sally`)
-
-Also accepts `--name` and `--stateDir` to address a server the same way every other `aux4/mock` command does (precedence: `--stateDir` > `--name` > `--port`).
-
-## Base URLs and paths
-
-The preset stubs Google's real paths (`/token`, `/oauth2/v2/userinfo`, `/oauth2/v3/userinfo`). Point the code-under-test's base URL at `http://localhost:<port>/api` and let it append the real path — `aux4/mock` strips the `/api` mount prefix before matching.
-
-## Using in tests
-
-`aux4/mock` and this preset are plain CLIs, so they drop straight into an [`aux4/test`](https://hub.aux4.io/package/aux4/test) `.test.md`. In CI, declare both packages on the test job:
-
-```yaml
-- uses: aux4/action@v1
-  with:
-    command: test
-    packages: aux4/mock,community/mock-preset-google
-```
-
-## This package as a template
-
-`community/mock-preset-google` is the reference implementation for writing your own `community/mock-preset-<service>` package. The pattern — depend on `aux4/mock`, re-declare the `mock` profile with a `preset` routing command, and add a `<service>` command under `mock:preset` whose `execute` is a sequence of `aux4 mock stub` calls — is documented in the [aux4/mock README](https://hub.aux4.io/package/aux4/mock) under "Writing your own preset package".
+- [community/mock-preset-google-calendar](https://hub.aux4.io/r/public/packages/community/mock-preset-google-calendar) — the Calendar API on top of this
+- [aux4/mock](https://hub.aux4.io/r/public/packages/aux4/mock) — the mock server itself

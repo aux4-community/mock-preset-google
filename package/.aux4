@@ -1,8 +1,8 @@
 {
   "scope": "community",
-  "name": "mock-preset-google",
-  "version": "0.0.2",
-  "description": "Google service preset for aux4/mock (OAuth token + userinfo auth dance)",
+  "name": "mock-preset-google-auth",
+  "version": "0.0.1",
+  "description": "Google auth preset for aux4/mock (token file + OAuth token endpoint + bearer-gated userinfo)",
   "license": "Apache-2.0",
   "tags": [
     "aux4",
@@ -10,6 +10,7 @@
     "preset",
     "google",
     "oauth",
+    "auth",
     "test"
   ],
   "dependencies": [
@@ -50,14 +51,30 @@
         {
           "name": "google",
           "execute": [
+            "profile:mock:preset:google"
+          ],
+          "help": {
+            "text": "Google presets. `auth` stands up the credentials every Google API needs; the per-service presets (community/mock-preset-google-<service>) add their endpoints here."
+          }
+        }
+      ]
+    },
+    {
+      "name": "mock:preset:google",
+      "commands": [
+        {
+          "name": "auth",
+          "execute": [
+            "file:${tokenFile}:${tokenFileBody}",
             "aux4 mock stub param(port) param(name) param(stateDir) --method POST --path /token --status 200 --body value(tokenBody)",
             "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v2/userinfo --status 200 --when-header 'authorization=Bearer *' --body value(identityBody)",
             "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v2/userinfo --status 401 --body value(unauthBody)",
             "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v3/userinfo --status 200 --when-header 'authorization=Bearer *' --body value(identityBody)",
-            "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v3/userinfo --status 401 --body value(unauthBody)"
+            "aux4 mock stub param(port) param(name) param(stateDir) --method GET --path /oauth2/v3/userinfo --status 401 --body value(unauthBody)",
+            "log:token file ${tokenFile}"
           ],
           "help": {
-            "text": "Register Google's auth dance on a running mock: POST /token, and bearer-gated GET /oauth2/v2/userinfo + /oauth2/v3/userinfo with the Google 401 envelope",
+            "text": "Write a Google token file and register Google's auth dance on a running mock: POST /token, and bearer-gated GET /oauth2/v2/userinfo + /oauth2/v3/userinfo with the Google 401 envelope",
             "variables": [
               {
                 "name": "port",
@@ -76,7 +93,7 @@
               },
               {
                 "name": "accessToken",
-                "text": "Token value returned by the token endpoint",
+                "text": "Token value returned by the token endpoint and written to the token file",
                 "default": "mock-access-token"
               },
               {
@@ -90,9 +107,54 @@
                 "default": "Sally"
               },
               {
+                "name": "tokenFile",
+                "text": "Path of the token file to write, for passing to a Google package's --tokenFile",
+                "default": "google-token.json"
+              },
+              {
+                "name": "refreshToken",
+                "text": "Refresh token written to the token file",
+                "default": "mock-refresh-token"
+              },
+              {
+                "name": "expiresAt",
+                "text": "Token expiry written to the token file. The default is far future so nothing refreshes; set it in the past to exercise the refresh path against the stubbed token endpoint",
+                "default": "2099-12-31T23:59:59Z"
+              },
+              {
+                "name": "scopes",
+                "text": "Scopes written to the token file",
+                "default": "https://www.googleapis.com/auth/userinfo.email"
+              },
+              {
+                "name": "clientId",
+                "text": "OAuth client id written to the token file",
+                "default": "mock-client-id"
+              },
+              {
+                "name": "clientSecret",
+                "text": "OAuth client secret written to the token file",
+                "default": "mock-client-secret"
+              },
+              {
+                "name": "authUrl",
+                "text": "Authorization URL written to the token file. Never called during a mock run",
+                "default": "https://accounts.google.com/o/oauth2/v2/auth"
+              },
+              {
+                "name": "tokenUrl",
+                "text": "Token URL written to the token file. Points at this mock so a refresh stays offline",
+                "default": "http://127.0.0.1:${port}/api/token"
+              },
+              {
+                "name": "tokenFileBody",
+                "text": "Token file contents (derived from the credential flags above)",
+                "default": "{\"clientId\":\"${clientId}\",\"clientSecret\":\"${clientSecret}\",\"authUrl\":\"${authUrl}\",\"tokenUrl\":\"${tokenUrl}\",\"scopes\":\"${scopes}\",\"accessToken\":\"${accessToken}\",\"refreshToken\":\"${refreshToken}\",\"expiresAt\":\"${expiresAt}\"}"
+              },
+              {
                 "name": "tokenBody",
-                "text": "OAuth token response body (derived from --accessToken)",
-                "default": "{\"access_token\":\"${accessToken}\",\"expires_in\":3599,\"refresh_token\":\"mock-refresh-token\",\"scope\":\"https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile\",\"token_type\":\"Bearer\"}"
+                "text": "OAuth token endpoint response body (derived from --accessToken)",
+                "default": "{\"access_token\":\"${accessToken}\",\"expires_in\":3599,\"refresh_token\":\"${refreshToken}\",\"scope\":\"https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile\",\"token_type\":\"Bearer\"}"
               },
               {
                 "name": "identityBody",
